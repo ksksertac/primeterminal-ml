@@ -1,0 +1,49 @@
+# Backtest + ML birleşik container
+# Build edilirken HEM alsatrobot-test (C#) HEM primeterminal-ml (Python) kopyalanır.
+#
+# Build context: parent dir (agentprojectcreator/) olmalı.
+# Komut:
+#   cd /opt/primeterminal
+#   docker build -t ghcr.io/ksksertac/primeterminal-backtest:latest \
+#     -f ml/Dockerfile.backtest .
+#
+# Çalıştırma docker-compose.yml'de tanımlı.
+
+# ── Aşama 1: C# build ──
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS dotnet-build
+WORKDIR /src
+COPY alsatrobot-test/ ./alsatrobot-test/
+WORKDIR /src/alsatrobot-test
+RUN dotnet publish -c Release -o /out --self-contained false /p:UseAppHost=true
+
+# ── Aşama 2: Runtime — .NET 8 + Python 3.11 + LightGBM ──
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS runtime
+
+# Python + libgomp1 (LightGBM dependency) + curl (debug)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        libgomp1 \
+        curl ca-certificates \
+        bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python ML deps
+WORKDIR /ml
+COPY primeterminal-ml/requirements.txt /ml/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Python kodları
+COPY primeterminal-ml/train.py     /ml/train.py
+COPY primeterminal-ml/run_daily.sh /run_daily.sh
+RUN chmod +x /run_daily.sh
+
+# C# binary
+WORKDIR /app
+COPY --from=dotnet-build /out /app
+RUN chmod +x /app/alsatrobot-test
+
+# Shared volume mount noktası
+VOLUME ["/ml-shared"]
+
+# Container giriş noktası
+CMD ["/bin/bash", "/run_daily.sh"]
