@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Data (büyük, gitignore)
+data/*.csv
+data/*.parquet
+data/*.feather
+
+# Models (versiyonlu, gitignore — release tag ile dağıtılır)
+models/*.onnx
+models/*.pkl
+models/*.json
+!models/.gitkeep
+
+# Eğitim çıktıları
+runs/
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
