@@ -49,18 +49,35 @@ def load_and_split(csv_path: Path, test_days: int = 7):
     if "outcome" not in df.columns:
         raise ValueError("CSV'de 'outcome' kolonu yok (label)")
 
+    # Yetersiz veri kontrolü
+    if len(df) < 5000:
+        raise ValueError(f"Cok az veri ({len(df)} satir) — train.py atlanmali, CSV birikiminde yarin tekrar dene")
+
+    days_span = (df["timestamp"].max() - df["timestamp"].min()).total_seconds() / 86400
+    print(f"[Data] Toplam: {len(df):,} | Veri ara: {days_span:.1f} gun")
+    print(f"[Data] Tarih: {df['timestamp'].min()} -> {df['timestamp'].max()}")
+
+    # ── Strateji seçimi ──
     cutoff = df["timestamp"].max() - pd.Timedelta(days=test_days)
     train_df = df[df["timestamp"] < cutoff]
     test_df  = df[df["timestamp"] >= cutoff]
 
-    print(f"[Data] Toplam: {len(df):,} | Train: {len(train_df):,} | Test: {len(test_df):,}")
-    if len(train_df) == 0 or len(test_df) == 0:
-        raise ValueError(f"Yetersiz veri — test_days={test_days} ile train/test boş kalıyor")
+    # Time-based split başarısız → random fallback
+    if len(train_df) < 1000 or len(test_df) < 500:
+        print(f"[Data] Time-based split yetersiz (train={len(train_df)}, test={len(test_df)})")
+        print(f"[Data] FALLBACK: random 80/20 split kullanılıyor (gunluk akumulasyon icin)")
+        # Seed = sabit (reproducible)
+        df_shuf = df.sample(frac=1.0, random_state=42).reset_index(drop=True)
+        split = int(len(df_shuf) * 0.80)
+        train_df = df_shuf.iloc[:split]
+        test_df  = df_shuf.iloc[split:]
 
-    print(f"[Data] Train tarih: {train_df['timestamp'].min()} → {train_df['timestamp'].max()}")
-    print(f"[Data] Test tarih:  {test_df['timestamp'].min()} → {test_df['timestamp'].max()}")
-    print(f"[Data] Train win oranı: {train_df['outcome'].mean():.3f}")
-    print(f"[Data] Test win oranı:  {test_df['outcome'].mean():.3f}")
+    print(f"[Data] Train: {len(train_df):,} | Test: {len(test_df):,}")
+    print(f"[Data] Train win orani: {train_df['outcome'].mean():.3f}")
+    print(f"[Data] Test win orani:  {test_df['outcome'].mean():.3f}")
+
+    if len(train_df) == 0 or len(test_df) == 0:
+        raise ValueError("Train veya test boş — veri yetersiz")
 
     return (
         train_df[FEATURES].values, train_df["outcome"].values,

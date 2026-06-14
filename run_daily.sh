@@ -16,7 +16,8 @@
 #   ML_TRAIN_ENABLED = 1 (default; 0 ise sadece backtest)
 #   DAILY_SLEEP_SECONDS = 86400 (default 24 saat)
 
-set -euo pipefail
+# Eğitim crash olursa sleep 24h'a geç (restart loop önle)
+set -uo pipefail
 
 DATA_DIR="$(dirname "${ML_DATA_PATH:-/ml-shared/data/training_data.csv}")"
 MODEL_DIR="$(dirname "${ML_MODEL_PATH:-/ml-shared/models/model.json}")"
@@ -38,31 +39,45 @@ log "=========================================="
 # ── 1. C# --export-training (incremental CSV) ──
 log "[1/3] C# --export-training (incremental)"
 cd /app
-dotnet alsatrobot-test.dll --export-training
-log "✓ CSV export tamam"
+if dotnet alsatrobot-test.dll --export-training; then
+    log "✓ CSV export tamam"
+    EXPORT_OK=1
+else
+    log "⚠ CSV export hatası — eğitim atlanacak, 24h uyu"
+    EXPORT_OK=0
+fi
 
-# ── 2. Python LightGBM eğitim ──
-if [ "${ML_TRAIN_ENABLED:-1}" = "1" ]; then
+# ── 2. Python LightGBM eğitim (sadece export başarılıysa) ──
+if [ "${EXPORT_OK}" = "1" ] && [ "${ML_TRAIN_ENABLED:-1}" = "1" ]; then
     log "[2/3] Python train.py (LightGBM)"
     cd /ml
-    python3 train.py \
+    if python3 train.py \
         --input "${ML_DATA_PATH:-/ml-shared/data/training_data.csv}" \
         --output "${MODEL_TMP}" \
-        --threshold 0.55 \
-        --test-days 7
-
-    # ── 3. Atomic swap ──
-    log "[3/3] Atomic swap (engine fsnotify ile yakalar)"
-    if [ -f "${MODEL_PATH}" ]; then
-        ARCHIVE_NAME="model_$(date -u +%Y%m%d_%H%M).json"
-        cp "${MODEL_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_NAME}"
-        log "Eski model arşivlendi: ${ARCHIVE_DIR}/${ARCHIVE_NAME}"
+        --threshold 0.50 \
+        --test-days 7; then
+        TRAIN_OK=1
+    else
+        TRAIN_OK=0
+        log "⚠ Eğitim başarısız — yeni model üretilmedi, eski model korunuyor"
     fi
-    mv "${MODEL_TMP}" "${MODEL_PATH}"
-    log "✓ Yeni model aktif: ${MODEL_PATH}"
 
-    # Eski arşiv temizle (son 14 günlük tut)
-    find "${ARCHIVE_DIR}" -name "model_*.json" -type f -mtime +14 -delete 2>/dev/null || true
+    # ── 3. Atomic swap (sadece eğitim başarılıysa) ──
+    if [ "${TRAIN_OK}" = "1" ] && [ -f "${MODEL_TMP}" ]; then
+        log "[3/3] Atomic swap (engine fsnotify ile yakalar)"
+        if [ -f "${MODEL_PATH}" ]; then
+            ARCHIVE_NAME="model_$(date -u +%Y%m%d_%H%M).json"
+            cp "${MODEL_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_NAME}"
+            log "Eski model arşivlendi: ${ARCHIVE_DIR}/${ARCHIVE_NAME}"
+        fi
+        mv "${MODEL_TMP}" "${MODEL_PATH}"
+        log "✓ Yeni model aktif: ${MODEL_PATH}"
+
+        find "${ARCHIVE_DIR}" -name "model_*.json" -type f -mtime +14 -delete 2>/dev/null || true
+    else
+        log "[3/3] Eğitim başarısız ya da model dosyası yok — swap atlandı"
+        rm -f "${MODEL_TMP}" 2>/dev/null || true
+    fi
 else
     log "[2/3] ML_TRAIN_ENABLED=0 — eğitim atlandı"
 fi
@@ -71,3 +86,6 @@ log "✓ Pipeline tamamlandı. ${SLEEP_SECS} saniye uyuyacak."
 log "(Docker restart policy: bir sonraki gün yeniden başlatılır)"
 
 sleep "${SLEEP_SECS}"
+
+# Sleep bitince exit 0 ile çık (restart loop önle — restart: always tetiklenir)
+exit 0
