@@ -1,5 +1,9 @@
-lightgbm==4.5.0
-pandas==2.2.3
-numpy==2.2.0
-scikit-learn==1.6.0
-pyarrow==18.1.0
+# leaves Go library only supports LightGBM v3 model format.
+# LightGBM 4.x writes v4 format → "only version=v3 is supported" error.
+# Stick to 3.3.5 (latest 3.x) for compatibility.
+# numpy/pandas/sklearn also pinned to versions compatible with LightGBM 3.x.
+lightgbm==3.3.5
+numpy==1.26.4
+pandas==2.0.3
+scikit-learn==1.3.2
+pyarrow==14.0.2
