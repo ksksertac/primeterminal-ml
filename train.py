@@ -86,16 +86,28 @@ def load_and_split(csv_path: Path, test_days: int = 7):
 
 
 def train(X_train, y_train, X_test, y_test):
+    # ── 2026-06-15: Zaman feature'larini devre disi birak (overfit kaynagi) ──
+    # hour_cos/hour_sin/day_of_week gain'de en ust siralardaydi = donemin seans paternini
+    # ezberliyor; 1. agactan sonra test AUC dusuyordu (overfit). Parite icin kolon sayisi
+    # 20'de KALIR, egitimde sifirlanir -> model bu kolonlara split atamaz, Go MLFeatures degismez.
+    time_idx = [FEATURES.index(f) for f in ("hour_sin", "hour_cos", "day_of_week")]
+    X_train = X_train.copy(); X_train[:, time_idx] = 0.0
+    X_test  = X_test.copy();  X_test[:, time_idx]  = 0.0
+
     train_set = lgb.Dataset(X_train, label=y_train, feature_name=FEATURES)
     test_set  = lgb.Dataset(X_test,  label=y_test,  feature_name=FEATURES, reference=train_set)
 
-    # 2026-06-14: Class imbalance düzeltmesi
-    # İlk eğitimde win rate %11 → model "hep 0" tahmin etti (accuracy %88 ama 0 trade).
-    # is_unbalance=True → LightGBM pos/neg weight otomatik dengeler.
+    # 2026-06-15: Class imbalance — explicit scale_pos_weight (neg/pos orani).
+    # is_unbalance yerine: tahminleri yukari yayar, threshold anlamli hale gelir.
+    n_pos = max(1, int((y_train == 1).sum()))
+    n_neg = int((y_train == 0).sum())
+    spw   = n_neg / n_pos
+    print(f"[Train] scale_pos_weight = {spw:.2f} (neg={n_neg:,} / pos={n_pos:,})")
+
     params = {
         "objective": "binary",
         "metric": ["binary_logloss", "auc"],
-        "is_unbalance": True,
+        "scale_pos_weight": spw,
         "learning_rate": 0.05,
         "num_leaves": 63,
         "max_depth": 7,
@@ -137,7 +149,7 @@ def evaluate(booster, X_test, y_test, threshold: float = 0.50):
 
     print(f"\n[Threshold Sweep — en iyi trade-off bul]")
     print(f"  {'thr':>5} | {'trades':>7} | {'win%':>6} | {'expectancy':>10}")
-    for thr in [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60]:
+    for thr in [round(0.30 + i * 0.02, 2) for i in range(21)]:  # 0.30→0.70, ince adim (gercek esigi say ile sec)
         mask = proba >= thr
         if mask.sum() < 100:
             continue
