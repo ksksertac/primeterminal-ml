@@ -39,7 +39,11 @@ FEATURES = [
 
 
 def load_and_split(csv_path: Path, test_days: int = 7):
-    df = pd.read_csv(csv_path, parse_dates=["timestamp"])
+    # 2026-06-16: Bellek (OOM) — feature'lari float32, outcome int8 oku.
+    # Cift-yonlu veri 5M+ satir; float64 default ~2GB container'da OOM oluyordu.
+    _dtypes = {f: "float32" for f in FEATURES}
+    _dtypes["outcome"] = "int8"
+    df = pd.read_csv(csv_path, parse_dates=["timestamp"], dtype=_dtypes)
     df = df.sort_values("timestamp").reset_index(drop=True)
 
     # Eksik feature varsa erken hata
@@ -78,6 +82,13 @@ def load_and_split(csv_path: Path, test_days: int = 7):
 
     if len(train_df) == 0 or len(test_df) == 0:
         raise ValueError("Train veya test boş — veri yetersiz")
+
+    # 2026-06-16: Bellek — train cok buyukse ornekle (bidirectional + 90 gun -> 15M+ satir OOM).
+    # 2M, tek-yonlu calisan boyuta yakin; rastgele ornek iki yonu de korur. Test tam kalir (durust AUC).
+    MAX_TRAIN = 2_000_000
+    if len(train_df) > MAX_TRAIN:
+        print(f"[Data] Train {len(train_df):,} -> {MAX_TRAIN:,} ornekleniyor (bellek/OOM önleme)")
+        train_df = train_df.sample(n=MAX_TRAIN, random_state=42)
 
     return (
         train_df[FEATURES].values, train_df["outcome"].values,
