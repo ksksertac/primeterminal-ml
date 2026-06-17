@@ -33,9 +33,10 @@ COPY primeterminal-ml/requirements.txt /ml/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Python kodları
-COPY primeterminal-ml/train.py     /ml/train.py
-COPY primeterminal-ml/run_daily.sh /run_daily.sh
-RUN chmod +x /run_daily.sh
+COPY primeterminal-ml/train.py          /ml/train.py
+COPY primeterminal-ml/run_daily.sh      /run_daily.sh
+COPY primeterminal-ml/run_train_once.sh /run_train_once.sh
+RUN chmod +x /run_daily.sh /run_train_once.sh
 
 # C# binary
 WORKDIR /app
